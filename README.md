@@ -12,28 +12,14 @@ Bot Discord pour recuperer et afficher les donnees de l'API AlpInn avec:
 
 ## Installation
 
-1. Creer un environnement virtuel:
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-2. Installer les dependances:
-```powershell
-pip install -r requirements.txt
-```
-
-3. Configurer le token Discord:
-```powershell
-Copy-Item .env.example .env
-```
-Puis renseigner `DISCORD_BOT_TOKEN` dans `.env`.
-Puis ajouter aussi `ALPINN_API_KEY` dans `.env`.
-
-4. Lancer le bot:
-```powershell
-python bot.py
-```
+1.
+`git clone https://github.com/00MY00/alpinn.ch_discord_bot.git
+cd alpinn.ch_discord_bot
+chmod +x RUN_Ubuntu/Auto_RUN_Alpinn_Bot_GIT_Update.sh
+chmod +x RUN_Ubuntu/Manage_Autostart.sh
+./RUN_Ubuntu/Auto_RUN_Alpinn_Bot_GIT_Update.sh
+nano ~/alpinn.ch_discord_bot/prod/.env
+./RUN_Ubuntu/Auto_RUN_Alpinn_Bot_GIT_Update.sh`
 
 ## Version Python recommandee
 
