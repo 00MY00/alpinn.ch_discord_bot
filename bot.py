@@ -1169,6 +1169,7 @@ async def help_cmd(ctx: commands.Context) -> None:
         "`!reboot`: Redemarre le bot (admin).\n"
         "`!autostart <on|off|status>`: Active/desactive/affiche le demarrage auto Linux (admin).\n"
         "`!set_update_delay <minutes>`: Definit le delai (minutes) entre verifications de mise a jour du bot (admin).\n"
+        "`!show_logs [lignes]`: Affiche les dernieres lignes du log update sur Discord (admin).\n"
         "`!backup_config`: Cree une sauvegarde horodatee de bot_config.json (admin).\n"
         "`!restore_config [fichier.json]`: Restaure une backup (ou la plus recente) avec backup temporaire auto avant restore (admin).\n"
         "`!show_channels`: Affiche les associations endpoint/salon.\n"
@@ -1723,6 +1724,35 @@ async def set_update_delay(ctx: commands.Context, minutes: int) -> None:
     await ctx.send(f"Delai de verification des updates defini a `{minutes}` minute(s).")
 
 
+@bot.command(name="show_logs")
+@commands.has_permissions(administrator=True)
+async def show_logs(ctx: commands.Context, lines: int = 40) -> None:
+    safe_lines = max(5, min(lines, 200))
+    log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "update.log")
+    if not os.path.isfile(log_path):
+        await ctx.send(f"Log introuvable: `{log_path}`")
+        return
+
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as file_obj:
+            content_lines = file_obj.readlines()
+    except Exception as exc:
+        await ctx.send(f"Echec lecture log: {exc}")
+        return
+
+    tail_lines = content_lines[-safe_lines:]
+    if not tail_lines:
+        await ctx.send("Le log est vide.")
+        return
+
+    payload = "".join(tail_lines).strip()
+    if len(payload) > 1800:
+        payload = payload[-1800:]
+        payload = "(tronque)\n" + payload
+
+    await ctx.send(f"```text\n{payload}\n```")
+
+
 @bot.command(name="backup_config")
 @commands.has_permissions(administrator=True)
 async def backup_config(ctx: commands.Context) -> None:
@@ -1888,6 +1918,7 @@ async def events(ctx: commands.Context, *, query: str = "") -> None:
 @reboot.error
 @autostart.error
 @set_update_delay.error
+@show_logs.error
 @backup_config.error
 @restore_config.error
 @set_base_url.error
