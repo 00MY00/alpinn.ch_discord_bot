@@ -11,6 +11,7 @@ PULL_DIR="$BASE_DIR/pull"
 PROD_DIR="$BASE_DIR/prod"
 LOG_FILE="$BASE_DIR/update.log"
 LOCK_DIR="$BASE_DIR/.bot_runner.lock"
+VENV_DIR="$PROD_DIR/.venv"
 REPO_URL="https://github.com/00MY00/alpinn.ch_discord_bot"
 BRANCH="main"
 REBOOT_EXIT_CODE=42
@@ -53,11 +54,13 @@ test_git() {
 test_python() {
   if command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="python3"
+    BOT_PYTHON_BIN="$PYTHON_BIN"
     return 0
   fi
 
   if command -v python >/dev/null 2>&1; then
     PYTHON_BIN="python"
+    BOT_PYTHON_BIN="$PYTHON_BIN"
     return 0
   fi
 
@@ -109,7 +112,7 @@ sync_pull_to_prod() {
   fi
 
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --delete --exclude='.git' "$PULL_DIR/" "$PROD_DIR/" || return 1
+    rsync -a --delete --exclude='.git' --exclude='.venv' "$PULL_DIR/" "$PROD_DIR/" || return 1
   else
     log "WARN" "rsync absent, copie via cp"
     rm -rf "$PROD_DIR"/*
@@ -124,17 +127,31 @@ sync_pull_to_prod() {
   log "INFO" "Synchronisation pull -> prod terminee"
 }
 
+ensure_venv() {
+  if [ ! -x "$VENV_DIR/bin/python" ]; then
+    log "INFO" "Creation environnement virtuel Python ($VENV_DIR)"
+    "$PYTHON_BIN" -m venv "$VENV_DIR" >>"$LOG_FILE" 2>&1 || {
+      log "ERROR" "Creation venv echouee. Installe python3-venv/python3-full puis relance."
+      return 1
+    }
+  fi
+
+  BOT_PYTHON_BIN="$VENV_DIR/bin/python"
+  "$BOT_PYTHON_BIN" -m pip --version >/dev/null 2>&1 || {
+    log "ERROR" "pip indisponible dans le venv: $VENV_DIR"
+    return 1
+  }
+}
+
 install_requirements_if_needed() {
   local req_file="$PROD_DIR/requirements.txt"
 
   [ -f "$req_file" ] || fail "requirements.txt introuvable dans $PROD_DIR"
 
-  if ! "$PYTHON_BIN" -m pip --version >/dev/null 2>&1; then
-    fail "pip indisponible pour $PYTHON_BIN"
-  fi
+  ensure_venv || return 1
 
-  log "INFO" "Verification/installation des requirements"
-  "$PYTHON_BIN" -m pip install -r "$req_file" >>"$LOG_FILE" 2>&1 || return 1
+  log "INFO" "Verification/installation des requirements (venv)"
+  "$BOT_PYTHON_BIN" -m pip install -r "$req_file" >>"$LOG_FILE" 2>&1 || return 1
 }
 
 check_env_keys() {
@@ -163,7 +180,7 @@ check_env_keys() {
 run_bot() {
   cd "$PROD_DIR" || return 1
   log "INFO" "Demarrage du bot (bot.py)"
-  "$PYTHON_BIN" bot.py
+  "$BOT_PYTHON_BIN" bot.py
 }
 
 full_update_cycle() {
