@@ -51,6 +51,7 @@ REBOOT_REQUESTED = False
 AUTOSTART_SCRIPT_RELATIVE_PATH = os.path.join("RUN_Ubuntu", "Manage_Autostart.sh")
 CONFIG_BACKUP_DIR_NAME = "config_backups"
 UPDATE_DELAY_FILE_NAME = ".update_poll_minutes"
+BACKGROUND_MODE_FILE_NAME = ".background_mode"
 
 
 ENDPOINT_NAMES = ["association", "news", "statuts", "staff", "activities", "events"]
@@ -1168,6 +1169,7 @@ async def help_cmd(ctx: commands.Context) -> None:
         "`!clear <#salon|all>`: Supprime les messages auto du salon ou de tous les salons (admin).\n"
         "`!reboot`: Redemarre le bot (admin).\n"
         "`!autostart <on|off|status>`: Active/desactive/affiche le demarrage auto Linux (admin).\n"
+        "`!background_mode <on|off|status>`: Active/desactive/affiche le lancement en arriere-plan du script (admin).\n"
         "`!set_update_delay <minutes>`: Definit le delai (minutes) entre verifications de mise a jour du bot (admin).\n"
         "`!show_logs [lignes]`: Affiche les dernieres lignes du log update sur Discord (admin).\n"
         "`!backup_config`: Cree une sauvegarde horodatee de bot_config.json (admin).\n"
@@ -1648,6 +1650,25 @@ def read_update_delay_minutes_from_file() -> Optional[int]:
     return None
 
 
+def get_background_mode_file_path() -> str:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(script_dir)
+    return os.path.join(base_dir, BACKGROUND_MODE_FILE_NAME)
+
+
+def read_background_mode() -> str:
+    path = get_background_mode_file_path()
+    if not os.path.isfile(path):
+        return "on"
+    try:
+        raw = open(path, "r", encoding="utf-8").read().strip().lower()
+    except Exception:  # noqa: BLE001
+        return "on"
+    if raw in {"on", "off"}:
+        return raw
+    return "on"
+
+
 @bot.command(name="autostart")
 @commands.has_permissions(administrator=True)
 async def autostart(ctx: commands.Context, mode: str = "status") -> None:
@@ -1703,6 +1724,29 @@ async def autostart(ctx: commands.Context, mode: str = "status") -> None:
 
     message = output if output else f"Commande autostart `{action}` executee."
     await ctx.send(f"{message}\nEtat demarrage auto: `{final_state}`")
+
+
+@bot.command(name="background_mode")
+@commands.has_permissions(administrator=True)
+async def background_mode(ctx: commands.Context, mode: str = "status") -> None:
+    action = mode.strip().lower()
+    if action not in {"on", "off", "status"}:
+        await ctx.send("Usage: `!background_mode <on|off|status>`")
+        return
+
+    file_path = get_background_mode_file_path()
+    if action in {"on", "off"}:
+        try:
+            with open(file_path, "w", encoding="utf-8") as file_obj:
+                file_obj.write(f"{action}\n")
+        except Exception as exc:
+            await ctx.send(f"Echec sauvegarde mode arriere-plan: {exc}")
+            return
+        save_reconciled_config({"background_mode_enabled": action == "on"})
+
+    current = read_background_mode()
+    state = "actif" if current == "on" else "inactif"
+    await ctx.send(f"Mode arriere-plan: `{state}`")
 
 
 @bot.command(name="set_update_delay")
@@ -1807,6 +1851,7 @@ async def show_config(ctx: commands.Context) -> None:
     key_state = "definie" if api_key else "absente"
     autostart_enabled = bool(cfg.get("boot_autostart_enabled", False))
     autostart_state = "actif" if autostart_enabled else "inactif"
+    background_state = "actif" if read_background_mode() == "on" else "inactif"
     delay_minutes = read_update_delay_minutes_from_file()
     if delay_minutes is None:
         raw_delay = cfg.get("update_check_delay_minutes", 1)
@@ -1818,6 +1863,7 @@ async def show_config(ctx: commands.Context) -> None:
         f"base_url=`{base_url}`\n"
         f"api_key=`{key_state}` (lecture locale, non modifiable via commande)\n"
         f"autostart_linux=`{autostart_state}`\n"
+        f"background_mode=`{background_state}`\n"
         f"update_check_delay_minutes=`{delay_minutes}`"
     )
 
@@ -1917,6 +1963,7 @@ async def events(ctx: commands.Context, *, query: str = "") -> None:
 @clear.error
 @reboot.error
 @autostart.error
+@background_mode.error
 @set_update_delay.error
 @show_logs.error
 @backup_config.error

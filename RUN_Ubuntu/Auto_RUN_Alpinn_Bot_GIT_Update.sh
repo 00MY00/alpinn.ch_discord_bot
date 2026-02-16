@@ -16,6 +16,7 @@ VENV_DIR="$PROD_DIR/.venv"
 DEPLOY_STAMP_FILE="$PROD_DIR/.deploy_pull_head"
 REQ_STAMP_FILE="$PROD_DIR/.venv/.requirements.sha256"
 UPDATE_DELAY_FILE="$BASE_DIR/.update_poll_minutes"
+BACKGROUND_MODE_FILE="$BASE_DIR/.background_mode"
 REPO_URL="https://github.com/00MY00/alpinn.ch_discord_bot"
 BRANCH="main"
 REBOOT_EXIT_CODE=42
@@ -26,7 +27,17 @@ DEPLOY_UPDATED=0
 BOT_PID=0
 
 daemonize_if_needed() {
+  local background_mode="on"
+
   if [ "${ALPINN_NO_DAEMONIZE:-0}" = "1" ] || [ "${ALPINN_DAEMONIZED:-0}" = "1" ]; then
+    return 0
+  fi
+
+  if [ -f "$BACKGROUND_MODE_FILE" ]; then
+    background_mode="$(tr -d '[:space:]' < "$BACKGROUND_MODE_FILE" 2>/dev/null | tr '[:upper:]' '[:lower:]')"
+  fi
+
+  if [ "$background_mode" = "off" ]; then
     return 0
   fi
 
