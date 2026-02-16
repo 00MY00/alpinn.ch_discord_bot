@@ -10,6 +10,7 @@ BASE_DIR="$HOME/alpinn.ch_discord_bot"
 PULL_DIR="$BASE_DIR/pull"
 PROD_DIR="$BASE_DIR/prod"
 LOG_FILE="$BASE_DIR/update.log"
+RUNNER_STDOUT_LOG="$BASE_DIR/runner.out"
 LOCK_DIR="$BASE_DIR/.bot_runner.lock"
 VENV_DIR="$PROD_DIR/.venv"
 DEPLOY_STAMP_FILE="$PROD_DIR/.deploy_pull_head"
@@ -23,6 +24,17 @@ UPDATE_POLL_SECONDS="$DEFAULT_UPDATE_POLL_SECONDS"
 LAST_UPDATE_POLL_SECONDS=0
 DEPLOY_UPDATED=0
 BOT_PID=0
+
+daemonize_if_needed() {
+  if [ "${ALPINN_NO_DAEMONIZE:-0}" = "1" ] || [ "${ALPINN_DAEMONIZED:-0}" = "1" ]; then
+    return 0
+  fi
+
+  mkdir -p "$BASE_DIR"
+  nohup env ALPINN_DAEMONIZED=1 bash "$0" "$@" >>"$RUNNER_STDOUT_LOG" 2>&1 &
+  echo "Script passe en arriere-plan (pid: $!). Logs: $LOG_FILE, $RUNNER_STDOUT_LOG"
+  exit 0
+}
 
 log() {
   local level="$1"
@@ -362,6 +374,7 @@ supervise_bot() {
 }
 
 main() {
+  daemonize_if_needed "$@"
   log "INFO" "Debut execution script update/lancement"
   acquire_lock || exit 0
 
