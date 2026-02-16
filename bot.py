@@ -4,10 +4,13 @@ import html
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+from pathlib import Path
 
 import discord
 from discord.ext import commands
@@ -44,6 +47,9 @@ class AlpinnBot(commands.Bot):
 intents = discord.Intents.default()
 intents.message_content = True
 bot = AlpinnBot(command_prefix="!", intents=intents, help_command=None)
+REBOOT_REQUESTED = False
+AUTOSTART_SCRIPT_RELATIVE_PATH = os.path.join("RUN_Ubuntu", "Manage_Autostart.sh")
+CONFIG_BACKUP_DIR_NAME = "config_backups"
 
 
 ENDPOINT_NAMES = ["association", "news", "statuts", "staff", "activities", "events"]
@@ -241,6 +247,35 @@ def save_reconciled_config(patch: Optional[Dict[str, Any]] = None) -> Dict[str, 
     cfg = reconcile_config_state(cfg)
     bot.config.update(cfg)
     return cfg
+
+
+def config_file_path() -> Path:
+    return Path(bot.config.path)
+
+
+def config_backup_dir() -> Path:
+    return config_file_path().parent / CONFIG_BACKUP_DIR_NAME
+
+
+def list_config_backups() -> List[Path]:
+    backup_dir = config_backup_dir()
+    if not backup_dir.exists():
+        return []
+    files = [p for p in backup_dir.glob("*.json") if p.is_file()]
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return files
+
+
+def create_config_backup(prefix: str = "bot_config_backup") -> Path:
+    cfg_path = config_file_path()
+    if not cfg_path.exists():
+        bot.config.load()
+    backup_dir = config_backup_dir()
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"{prefix}_{timestamp}.json"
+    shutil.copy2(cfg_path, backup_path)
+    return backup_path
 
 
 def endpoint_auto_messages(auto_messages: Dict[str, Any], endpoint_name: str) -> Dict[str, int]:
@@ -1131,6 +1166,9 @@ async def help_cmd(ctx: commands.Context) -> None:
         "`!disable_news`: Desactive l'auto-affichage de news (admin).\n"
         "`!clear <#salon|all>`: Supprime les messages auto du salon ou de tous les salons (admin).\n"
         "`!reboot`: Redemarre le bot (admin).\n"
+        "`!autostart <on|off|status>`: Active/desactive/affiche le demarrage auto Linux (admin).\n"
+        "`!backup_config`: Cree une sauvegarde horodatee de bot_config.json (admin).\n"
+        "`!restore_config [fichier.json]`: Restaure une backup (ou la plus recente) avec backup temporaire auto avant restore (admin).\n"
         "`!show_channels`: Affiche les associations endpoint/salon.\n"
         "`!show_config`: Affiche la config actuelle (sans afficher la cle).\n"
         "`!endpoints`: Liste les endpoints disponibles.\n"
@@ -1577,9 +1615,117 @@ async def clear(ctx: commands.Context, target: str) -> None:
 @bot.command(name="reboot")
 @commands.has_permissions(administrator=True)
 async def reboot(ctx: commands.Context) -> None:
-    await ctx.send("Redemarrage du bot en cours...")
+    global REBOOT_REQUESTED
+    REBOOT_REQUESTED = True
+    await ctx.send("Redemarrage demande: mise a jour puis redemarrage en cours...")
     await bot.close()
-    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
+def get_autostart_script_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), AUTOSTART_SCRIPT_RELATIVE_PATH)
+
+
+@bot.command(name="autostart")
+@commands.has_permissions(administrator=True)
+async def autostart(ctx: commands.Context, mode: str = "status") -> None:
+    action = mode.strip().lower()
+    if action not in {"on", "off", "status"}:
+        await ctx.send("Usage: `!autostart <on|off|status>`")
+        return
+
+    script_path = get_autostart_script_path()
+    if not os.path.isfile(script_path):
+        await ctx.send(f"Script introuvable: `{script_path}`")
+        return
+
+    try:
+        result = subprocess.run(
+            ["bash", script_path, action],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except Exception as exc:
+        await ctx.send(f"Erreur execution autostart: {exc}")
+        return
+
+    output = (result.stdout or "").strip()
+    error_output = (result.stderr or "").strip()
+
+    if result.returncode != 0:
+        details = error_output or output or f"code={result.returncode}"
+        await ctx.send(f"Echec autostart `{action}`: {details}")
+        return
+
+    detected_state: Optional[bool] = None
+    if "enabled" in output.lower():
+        detected_state = True
+    elif "disabled" in output.lower():
+        detected_state = False
+
+    if action == "on":
+        detected_state = True
+    elif action == "off":
+        detected_state = False
+
+    if detected_state is not None:
+        save_reconciled_config({"boot_autostart_enabled": detected_state})
+
+    final_state = "inconnu"
+    if detected_state is True:
+        final_state = "actif"
+    elif detected_state is False:
+        final_state = "inactif"
+
+    message = output if output else f"Commande autostart `{action}` executee."
+    await ctx.send(f"{message}\nEtat demarrage auto: `{final_state}`")
+
+
+@bot.command(name="backup_config")
+@commands.has_permissions(administrator=True)
+async def backup_config(ctx: commands.Context) -> None:
+    try:
+        backup_path = create_config_backup(prefix="bot_config_backup")
+    except Exception as exc:
+        await ctx.send(f"Echec backup config: {exc}")
+        return
+    await ctx.send(f"Backup creee: `{backup_path.name}`")
+
+
+@bot.command(name="restore_config")
+@commands.has_permissions(administrator=True)
+async def restore_config(ctx: commands.Context, backup_filename: Optional[str] = None) -> None:
+    backups = list_config_backups()
+    if not backups:
+        await ctx.send("Aucune backup disponible. Utilise `!backup_config` d'abord.")
+        return
+
+    selected: Optional[Path] = None
+    if backup_filename:
+        safe_name = os.path.basename(backup_filename.strip())
+        for item in backups:
+            if item.name == safe_name:
+                selected = item
+                break
+        if selected is None:
+            await ctx.send(f"Backup introuvable: `{safe_name}`")
+            return
+    else:
+        selected = backups[0]
+
+    try:
+        rollback_path = create_config_backup(prefix="bot_config_pre_restore")
+        shutil.copy2(selected, config_file_path())
+        save_reconciled_config()
+    except Exception as exc:
+        await ctx.send(f"Echec restoration config: {exc}")
+        return
+
+    await ctx.send(
+        f"Config restauree depuis `{selected.name}`.\n"
+        f"Backup temporaire rollback creee: `{rollback_path.name}`"
+    )
 
 
 @bot.command(name="show_config")
@@ -1588,7 +1734,13 @@ async def show_config(ctx: commands.Context) -> None:
     api_key = os.getenv("ALPINN_API_KEY", "").strip()
     base_url = cfg.get("base_url", "(vide)")
     key_state = "definie" if api_key else "absente"
-    await ctx.send(f"base_url=`{base_url}`\napi_key=`{key_state}` (lecture locale, non modifiable via commande)")
+    autostart_enabled = bool(cfg.get("boot_autostart_enabled", False))
+    autostart_state = "actif" if autostart_enabled else "inactif"
+    await ctx.send(
+        f"base_url=`{base_url}`\n"
+        f"api_key=`{key_state}` (lecture locale, non modifiable via commande)\n"
+        f"autostart_linux=`{autostart_state}`"
+    )
 
 
 @bot.command(name="endpoints")
@@ -1685,6 +1837,9 @@ async def events(ctx: commands.Context, *, query: str = "") -> None:
 @disable_news.error
 @clear.error
 @reboot.error
+@autostart.error
+@backup_config.error
+@restore_config.error
 @set_base_url.error
 async def admin_only_error(ctx: commands.Context, error: commands.CommandError) -> None:
     if isinstance(error, commands.MissingPermissions):
@@ -1698,6 +1853,8 @@ def main() -> None:
     if not token:
         raise RuntimeError("Variable DISCORD_BOT_TOKEN manquante dans .env")
     bot.run(token)
+    if REBOOT_REQUESTED:
+        raise SystemExit(42)
 
 
 if __name__ == "__main__":
