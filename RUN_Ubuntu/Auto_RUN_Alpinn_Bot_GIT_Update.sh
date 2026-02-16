@@ -13,6 +13,7 @@ LOG_FILE="$BASE_DIR/update.log"
 LOCK_DIR="$BASE_DIR/.bot_runner.lock"
 VENV_DIR="$PROD_DIR/.venv"
 DEPLOY_STAMP_FILE="$PROD_DIR/.deploy_pull_head"
+REQ_STAMP_FILE="$PROD_DIR/.venv/.requirements.sha256"
 REPO_URL="https://github.com/00MY00/alpinn.ch_discord_bot"
 BRANCH="main"
 REBOOT_EXIT_CODE=42
@@ -159,35 +160,85 @@ sync_pull_to_prod_if_needed() {
 }
 
 ensure_venv() {
+  local created=0
+
   if [ ! -x "$VENV_DIR/bin/python" ]; then
     log "INFO" "Creation environnement virtuel Python ($VENV_DIR)"
     "$PYTHON_BIN" -m venv "$VENV_DIR" >>"$LOG_FILE" 2>&1 || {
       log "ERROR" "Creation venv echouee. Installe python3-venv/python3-full puis relance."
       return 1
     }
+    created=1
   fi
 
   BOT_PYTHON_BIN="$VENV_DIR/bin/python"
   "$BOT_PYTHON_BIN" -m pip --version >/dev/null 2>&1 || {
-    log "ERROR" "pip indisponible dans le venv: $VENV_DIR"
-    return 1
+    log "WARN" "pip indisponible dans le venv, recreation de $VENV_DIR"
+    rm -rf "$VENV_DIR"
+    "$PYTHON_BIN" -m venv "$VENV_DIR" >>"$LOG_FILE" 2>&1 || {
+      log "ERROR" "Recreation venv echouee. Installe python3-venv/python3-full puis relance."
+      return 1
+    }
+    BOT_PYTHON_BIN="$VENV_DIR/bin/python"
+    "$BOT_PYTHON_BIN" -m pip --version >/dev/null 2>&1 || {
+      log "ERROR" "pip indisponible apres recreation du venv: $VENV_DIR"
+      return 1
+    }
+    created=1
   }
+
+  if [ "$created" -eq 1 ]; then
+    rm -f "$REQ_STAMP_FILE"
+  fi
+}
+
+requirements_fingerprint() {
+  local req_file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$req_file" | awk '{print $1}'
+    return 0
+  fi
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$req_file" | awk '{print $1}'
+    return 0
+  fi
+  return 1
+}
+
+requirements_install_needed() {
+  local req_hash="$1"
+  local stamped_hash=""
+
+  if [ ! -f "$REQ_STAMP_FILE" ]; then
+    return 0
+  fi
+
+  stamped_hash="$(cat "$REQ_STAMP_FILE" 2>/dev/null || true)"
+  [ "$req_hash" != "$stamped_hash" ]
 }
 
 install_requirements_if_needed() {
   local req_file="$PROD_DIR/requirements.txt"
   local force_install="${1:-0}"
+  local req_hash=""
 
   [ -f "$req_file" ] || fail "requirements.txt introuvable dans $PROD_DIR"
 
   ensure_venv || return 1
 
-  if [ "$force_install" -ne 1 ]; then
+  req_hash="$(requirements_fingerprint "$req_file")" || {
+    log "ERROR" "Impossible de calculer le hash de requirements.txt (sha256sum/shasum manquant)"
+    return 1
+  }
+
+  if [ "$force_install" -ne 1 ] && ! requirements_install_needed "$req_hash"; then
+    log "INFO" "Requirements deja a jour dans le venv"
     return 0
   fi
 
   log "INFO" "Verification/installation des requirements (venv)"
   "$BOT_PYTHON_BIN" -m pip install -r "$req_file" >>"$LOG_FILE" 2>&1 || return 1
+  echo "$req_hash" > "$REQ_STAMP_FILE" || return 1
 }
 
 check_env_keys() {
