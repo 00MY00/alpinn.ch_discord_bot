@@ -50,6 +50,7 @@ bot = AlpinnBot(command_prefix="!", intents=intents, help_command=None)
 REBOOT_REQUESTED = False
 AUTOSTART_SCRIPT_RELATIVE_PATH = os.path.join("RUN_Ubuntu", "Manage_Autostart.sh")
 CONFIG_BACKUP_DIR_NAME = "config_backups"
+UPDATE_DELAY_FILE_NAME = ".update_poll_minutes"
 
 
 ENDPOINT_NAMES = ["association", "news", "statuts", "staff", "activities", "events"]
@@ -1167,6 +1168,7 @@ async def help_cmd(ctx: commands.Context) -> None:
         "`!clear <#salon|all>`: Supprime les messages auto du salon ou de tous les salons (admin).\n"
         "`!reboot`: Redemarre le bot (admin).\n"
         "`!autostart <on|off|status>`: Active/desactive/affiche le demarrage auto Linux (admin).\n"
+        "`!set_update_delay <minutes>`: Definit le delai (minutes) entre verifications de mise a jour du bot (admin).\n"
         "`!backup_config`: Cree une sauvegarde horodatee de bot_config.json (admin).\n"
         "`!restore_config [fichier.json]`: Restaure une backup (ou la plus recente) avec backup temporaire auto avant restore (admin).\n"
         "`!show_channels`: Affiche les associations endpoint/salon.\n"
@@ -1625,6 +1627,26 @@ def get_autostart_script_path() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), AUTOSTART_SCRIPT_RELATIVE_PATH)
 
 
+def get_update_delay_file_path() -> str:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(script_dir)
+    return os.path.join(base_dir, UPDATE_DELAY_FILE_NAME)
+
+
+def read_update_delay_minutes_from_file() -> Optional[int]:
+    path = get_update_delay_file_path()
+    if not os.path.isfile(path):
+        return None
+    try:
+        raw = open(path, "r", encoding="utf-8").read().strip()
+        value = int(raw)
+        if value >= 1:
+            return value
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 @bot.command(name="autostart")
 @commands.has_permissions(administrator=True)
 async def autostart(ctx: commands.Context, mode: str = "status") -> None:
@@ -1682,6 +1704,25 @@ async def autostart(ctx: commands.Context, mode: str = "status") -> None:
     await ctx.send(f"{message}\nEtat demarrage auto: `{final_state}`")
 
 
+@bot.command(name="set_update_delay")
+@commands.has_permissions(administrator=True)
+async def set_update_delay(ctx: commands.Context, minutes: int) -> None:
+    if minutes < 1 or minutes > 1440:
+        await ctx.send("Valeur invalide. Utilise un nombre de minutes entre 1 et 1440.")
+        return
+
+    delay_path = get_update_delay_file_path()
+    try:
+        with open(delay_path, "w", encoding="utf-8") as file_obj:
+            file_obj.write(f"{minutes}\n")
+    except Exception as exc:
+        await ctx.send(f"Echec sauvegarde delai update: {exc}")
+        return
+
+    save_reconciled_config({"update_check_delay_minutes": minutes})
+    await ctx.send(f"Delai de verification des updates defini a `{minutes}` minute(s).")
+
+
 @bot.command(name="backup_config")
 @commands.has_permissions(administrator=True)
 async def backup_config(ctx: commands.Context) -> None:
@@ -1736,10 +1777,18 @@ async def show_config(ctx: commands.Context) -> None:
     key_state = "definie" if api_key else "absente"
     autostart_enabled = bool(cfg.get("boot_autostart_enabled", False))
     autostart_state = "actif" if autostart_enabled else "inactif"
+    delay_minutes = read_update_delay_minutes_from_file()
+    if delay_minutes is None:
+        raw_delay = cfg.get("update_check_delay_minutes", 1)
+        try:
+            delay_minutes = max(1, int(raw_delay))
+        except (TypeError, ValueError):
+            delay_minutes = 1
     await ctx.send(
         f"base_url=`{base_url}`\n"
         f"api_key=`{key_state}` (lecture locale, non modifiable via commande)\n"
-        f"autostart_linux=`{autostart_state}`"
+        f"autostart_linux=`{autostart_state}`\n"
+        f"update_check_delay_minutes=`{delay_minutes}`"
     )
 
 
@@ -1838,6 +1887,7 @@ async def events(ctx: commands.Context, *, query: str = "") -> None:
 @clear.error
 @reboot.error
 @autostart.error
+@set_update_delay.error
 @backup_config.error
 @restore_config.error
 @set_base_url.error

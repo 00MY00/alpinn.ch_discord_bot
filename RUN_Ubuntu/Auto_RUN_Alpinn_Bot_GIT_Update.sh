@@ -14,10 +14,13 @@ LOCK_DIR="$BASE_DIR/.bot_runner.lock"
 VENV_DIR="$PROD_DIR/.venv"
 DEPLOY_STAMP_FILE="$PROD_DIR/.deploy_pull_head"
 REQ_STAMP_FILE="$PROD_DIR/.venv/.requirements.sha256"
+UPDATE_DELAY_FILE="$BASE_DIR/.update_poll_minutes"
 REPO_URL="https://github.com/00MY00/alpinn.ch_discord_bot"
 BRANCH="main"
 REBOOT_EXIT_CODE=42
-UPDATE_POLL_SECONDS=60
+DEFAULT_UPDATE_POLL_SECONDS=60
+UPDATE_POLL_SECONDS="$DEFAULT_UPDATE_POLL_SECONDS"
+LAST_UPDATE_POLL_SECONDS=0
 DEPLOY_UPDATED=0
 BOT_PID=0
 
@@ -118,6 +121,27 @@ current_prod_head() {
     return 0
   fi
   return 1
+}
+
+load_update_poll_seconds() {
+  local raw=""
+  local minutes=0
+  UPDATE_POLL_SECONDS="$DEFAULT_UPDATE_POLL_SECONDS"
+
+  if [ -f "$UPDATE_DELAY_FILE" ]; then
+    raw="$(tr -d '[:space:]' < "$UPDATE_DELAY_FILE" 2>/dev/null || true)"
+    if [[ "$raw" =~ ^[0-9]+$ ]]; then
+      minutes="$raw"
+      if [ "$minutes" -ge 1 ]; then
+        UPDATE_POLL_SECONDS=$((minutes * 60))
+      fi
+    fi
+  fi
+
+  if [ "$LAST_UPDATE_POLL_SECONDS" -ne "$UPDATE_POLL_SECONDS" ]; then
+    log "INFO" "Delai verification update: $((UPDATE_POLL_SECONDS / 60)) minute(s)"
+    LAST_UPDATE_POLL_SECONDS="$UPDATE_POLL_SECONDS"
+  fi
 }
 
 sync_pull_to_prod_if_needed() {
@@ -322,6 +346,7 @@ supervise_bot() {
       continue
     fi
 
+    load_update_poll_seconds
     sleep "$UPDATE_POLL_SECONDS"
     full_update_cycle || {
       log "WARN" "Verification de mise a jour echouee (on garde le bot en route)"
