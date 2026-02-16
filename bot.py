@@ -1154,43 +1154,47 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError) 
 
 @bot.command(name="help")
 async def help_cmd(ctx: commands.Context) -> None:
-    msg = (
-        "**Aide commandes**\n"
-        "\n"
-        "**Section 1 - Configuration bot (serveur/Linux) [admin]**\n"
-        "`!set_base_url <url>`: Definit l'URL de base API.\n"
-        "`!set_channel <endpoint> <#salon>`: Associe un salon a un endpoint.\n"
-        "`!unset_channel <endpoint> [#salon]`: Retire un salon ou tous les salons d'un endpoint.\n"
-        "`!enable_endpoint <endpoint>` / `!disable_endpoint <endpoint>`: Active/desactive l'auto-affichage d'un endpoint.\n"
-        "`!enable_all_endpoints`: Active l'auto-affichage de tous les endpoints qui ont un salon configure.\n"
-        "`!enable_news` / `!disable_news`: Alias pour activer/desactiver l'endpoint `news`.\n"
-        "`!refresh_all_now`: Force une mise a jour immediate des endpoints actifs.\n"
-        "`!auto_status`: Affiche l'etat du mode auto (endpoints actifs).\n"
-        "`!clear <#salon|all>`: Supprime les messages auto suivis.\n"
-        "`!reboot`: Redemarre le bot (avec cycle update/restart du runner).\n"
-        "`!autostart <on|off|status>`: Demarrage auto Linux au reboot serveur.\n"
-        "`!background_mode <on|off|status>`: Lance le runner en arriere-plan ou premier plan.\n"
-        "`!set_update_delay <minutes>`: Delai entre verifications de mise a jour (1 a 1440).\n"
-        "`!show_logs [lignes]`: Affiche les dernieres lignes de `update.log`.\n"
-        "`!backup_config`: Sauvegarde `bot_config.json`.\n"
-        "`!restore_config [fichier.json]`: Restaure une sauvegarde config (rollback auto cree).\n"
-        "`!show_channels`: Affiche les associations endpoint/salon.\n"
-        "`!show_config`: Affiche l'etat de configuration (sans exposer les secrets).\n"
-        "\n"
-        "**Section 2 - Commandes fonctionnelles (API)**\n"
-        "`!endpoints` / `!list_endpoints`: Liste les endpoints disponibles.\n"
-        "`!fetch <endpoint> [k=v ...]`: Appel generique d'un endpoint avec filtres.\n"
-        "`!association`: Donnees association (sans filtre).\n"
-        "`!news [k=v ...]`: Donnees news avec filtres optionnels.\n"
-        "`!statuts [k=v ...]`: Donnees statuts avec filtres optionnels.\n"
-        "`!staff [k=v ...]`: Donnees staff avec filtres optionnels.\n"
-        "`!activities [k=v ...]`: Donnees activities avec filtres optionnels.\n"
-        "`!events [k=v ...]`: Donnees events avec filtres optionnels.\n"
-        "\n"
-        "Format filtres: `cle=valeur` separes par espace. Exemple: `!news limit=5 lang=fr`.\n"
-        "Cooldown global API: 1 requete / 60 secondes."
-    )
-    await ctx.send(msg)
+    parts = [
+        (
+            "**Aide commandes (1/2)**\n"
+            "**Configuration bot (serveur/Linux) [admin]**\n"
+            "`!set_base_url <url>`\n"
+            "`!set_channel <endpoint> <#salon>`\n"
+            "`!unset_channel <endpoint> [#salon]`\n"
+            "`!enable_endpoint <endpoint>` / `!disable_endpoint <endpoint>`\n"
+            "`!enable_all_endpoints`\n"
+            "`!enable_news` / `!disable_news`\n"
+            "`!refresh_all_now`\n"
+            "`!auto_status`\n"
+            "`!clear <#salon|all>`\n"
+            "`!reboot`\n"
+            "`!autostart <on|off|status>`\n"
+            "`!background_mode <on|off|status>`\n"
+            "`!set_update_delay <minutes>` (1 a 1440)\n"
+            "`!show_logs [lignes]`\n"
+            "`!backup_config`\n"
+            "`!restore_config [fichier.json]`\n"
+            "`!show_channels`\n"
+            "`!show_config`"
+        ),
+        (
+            "**Aide commandes (2/2)**\n"
+            "**Fonctionnalites API**\n"
+            "`!endpoints` / `!list_endpoints`\n"
+            "`!fetch <endpoint> [k=v ...]`\n"
+            "`!association`\n"
+            "`!news [k=v ...]`\n"
+            "`!statuts [k=v ...]`\n"
+            "`!staff [k=v ...]`\n"
+            "`!activities [k=v ...]`\n"
+            "`!events [k=v ...]`\n"
+            "Format filtres: `cle=valeur` separes par espace.\n"
+            "Exemple: `!news limit=5 lang=fr`\n"
+            "Cooldown global API: 1 requete / 60 secondes."
+        ),
+    ]
+    for part in parts:
+        await ctx.send(part)
 
 
 @bot.command(name="set_base_url")
